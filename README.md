@@ -121,6 +121,7 @@ Copy `.env.example` to `.env`. Every value is optional.
 | `ANTHROPIC_MODEL` | `claude-haiku-5-5` | |
 | `GEMINI_API_KEY` | | Uses Gemini when set and there is no Anthropic key. |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | |
+| `GEMINI_THINKING_LEVEL` | `low` | `low`, `medium` or `high`. Lower is faster, which matters for voice. |
 
 Either key works. With neither, the agent uses a built-in rules parser that makes no network calls and drives the same MCP tools, so the events look the same. If a model call fails before any tool has run, the turn is answered by the rules parser and the result includes an `error` field.
 
