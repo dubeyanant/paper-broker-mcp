@@ -3,6 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { PaperBroker } from "../broker/broker.ts";
 import { initialState, type Preview } from "../broker/state.ts";
+import { hasDevanagari, type Language } from "../language.ts";
+import type { NewsSource } from "../news/google.ts";
 import { createServer } from "../server.ts";
 import { VERSION } from "../version.ts";
 import { buildSystemPrompt } from "./prompt.ts";
@@ -84,6 +86,13 @@ export interface RunAgentTurnOptions {
   maxSteps?: number;
   /** How many recent messages the model sees. Default 20. */
   maxHistory?: number;
+  /**
+   * Reply language hint from the UI. Replies are in Hindi when this is "hi"
+   * or when the user's latest message is written in Devanagari.
+   */
+  language?: Language;
+  /** Headline source for get_news. Defaults to a shared Google News RSS client. */
+  news?: NewsSource;
 }
 
 export interface AgentTurnResult {
@@ -98,6 +107,8 @@ export interface AgentTurnResult {
   /** Which provider produced the reply. */
   provider: ProviderName;
   model?: string;
+  /** The language the reply is in. */
+  language: Language;
   /** Set when the chosen provider failed and the turn fell back to the rules parser. */
   error?: string;
 }
@@ -107,6 +118,11 @@ function textOf(result: CallToolResult): string {
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
     .map((c) => c.text)
     .join("\n");
+}
+
+/** Hindi if the UI asks for it or the user just wrote in Devanagari; otherwise English. */
+export function replyLanguage(hint: Language | undefined, latest: string): Language {
+  return hint === "hi" || hasDevanagari(latest) ? "hi" : "en";
 }
 
 function splitState(input: unknown): { broker: unknown; pendingPreviewId: string | null } {
@@ -145,6 +161,7 @@ function trimHistory(messages: ChatMessage[], max: number): ChatMessage[] {
 export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentTurnResult> {
   checkMessages(options.messages);
   const now = options.now ?? Date.now;
+  const language = replyLanguage(options.language, options.messages.at(-1)!.content);
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
 
   const { broker: brokerState, pendingPreviewId } = splitState(options.state);
@@ -157,7 +174,7 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     if (id !== pending?.id) broker.discardPreview(id);
   }
 
-  const server = createServer(broker);
+  const server = createServer(broker, options.news ? { news: options.news } : {});
   const client = new Client({ name: "paper-broker-agent", version: VERSION });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -167,6 +184,8 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
   let toolCalls = 0;
 
   const callTool = async (name: string, args: Record<string, unknown>): Promise<ToolOutcome> => {
+    // News and tip checks follow the conversation's language unless the model chose one.
+    if ((name === "get_news" || name === "check_tip") && args.language === undefined) args = { ...args, language };
     events.push({ type: "tool_call", name, args });
     const finish = (outcome: ToolOutcome): ToolOutcome => {
       events.push({ type: "tool_result", name, result: outcome.result, isError: outcome.isError });
@@ -209,12 +228,13 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
 
   const before = new Set(Object.keys(broker.toState().previews));
   const turn = {
-    system: buildSystemPrompt(pending, now()),
+    system: buildSystemPrompt(pending, now(), language),
     messages: trimHistory(options.messages, options.maxHistory ?? DEFAULT_MAX_HISTORY),
     tools,
     callTool,
     maxSteps,
     pendingPreview: pending,
+    language,
   };
 
   const unwrap = (out: string | ProviderReply): ProviderReply => (typeof out === "string" ? { reply: out } : out);
@@ -248,13 +268,14 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     if (id !== nextPending?.id) broker.discardPreview(id);
   }
 
-  const spoken = toSpeakable(reply);
+  const spoken = toSpeakable(reply, language);
   return {
     reply: spoken,
     events,
     state: { ...broker.toState(), pendingPreviewId: nextPending?.id ?? null },
     messages: [...options.messages, { role: "assistant", content: spoken }],
     provider: used.name,
+    language,
     ...(model ? { model } : {}),
     ...(error ? { error } : {}),
   };

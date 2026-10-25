@@ -1,4 +1,5 @@
-export { runAgentTurn, pickProvider, DEFAULT_MAX_STEPS, DEFAULT_MAX_HISTORY } from "./run.ts";
+export { runAgentTurn, pickProvider, replyLanguage, DEFAULT_MAX_STEPS, DEFAULT_MAX_HISTORY } from "./run.ts";
+export type { Language } from "../language.ts";
 export type { RunAgentTurnOptions, AgentTurnResult } from "./run.ts";
 export type {
   AgentEvent,

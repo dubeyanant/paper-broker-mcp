@@ -1,4 +1,5 @@
 import type { BrokerState, Preview } from "../broker/state.ts";
+import type { Language } from "../language.ts";
 
 /** One line of the visible conversation. Tool traffic is not stored here; it is reported as events. */
 export interface ChatMessage {
@@ -48,6 +49,8 @@ export interface ProviderTurn {
   maxSteps: number;
   /** The preview awaiting the user's yes or no, if any. */
   pendingPreview: Preview | null;
+  /** The language to reply in. */
+  language: Language;
 }
 
 export type ProviderName = "anthropic" | "gemini" | "rules";

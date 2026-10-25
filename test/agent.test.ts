@@ -277,6 +277,7 @@ test("gemini: errors name the step and elapsed time, and never include the key",
     callTool: async () => ({ result: null, text: "", isError: false }),
     maxSteps: 3,
     pendingPreview: null,
+    language: "en" as const,
   };
 
   const hanging = ((_url: string, init: RequestInit) =>
