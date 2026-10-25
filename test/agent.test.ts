@@ -4,6 +4,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   createAnthropicProvider,
   createGeminiProvider,
+  geminiThinkingConfig,
+  resetGeminiModelMemory,
   pickProvider,
   runAgentTurn,
   type AgentState,
@@ -281,7 +283,8 @@ test("gemini: errors name the step and elapsed time, and never include the key",
     new Promise((_resolve, reject) => {
       init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
     })) as typeof fetch;
-  const slow = createGeminiProvider({ apiKey: "secret-key-123", fetch: hanging, timeoutMs: 30 });
+  resetGeminiModelMemory();
+  const slow = createGeminiProvider({ apiKey: "secret-key-123", fetch: hanging, timeoutMs: 30, retryDelayMs: 1 });
   await assert.rejects(slow.run(turn), (err: Error) => {
     assert.match(err.message, /timed out at step 1 after \d+ ms/);
     assert.doesNotMatch(err.message, /secret-key-123/);
@@ -291,8 +294,94 @@ test("gemini: errors name the step and elapsed time, and never include the key",
   const echoing = (async () => new Response("bad key secret-key-123", { status: 400 })) as unknown as typeof fetch;
   const leaky = createGeminiProvider({ apiKey: "secret-key-123", fetch: echoing });
   await assert.rejects(leaky.run(turn), (err: Error) => {
-    assert.match(err.message, /returned 400 at step 1 after \d+ ms/);
+    assert.match(err.message, /returned 400 for gemini-3\.8-flash at step 1 after \d+ ms/);
     assert.doesNotMatch(err.message, /secret-key-123/);
     return true;
   });
+});
+
+/** A fake generateContent endpoint. `reply(model, call)` decides each response. */
+function fakeGemini(reply: (model: string, call: number) => Response | Promise<Response>) {
+  const calls: Array<{ model: string; body: any }> = [];
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    const model = decodeURIComponent(new URL(url).pathname.split("/models/")[1]!.replace(":generateContent", ""));
+    calls.push({ model, body: JSON.parse(init.body as string) });
+    return reply(model, calls.length);
+  }) as typeof fetch;
+  return { calls, fetchImpl };
+}
+const geminiJson = (parts: unknown[]) =>
+  new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts } }] }), { status: 200 });
+const busy = () => new Response('{"error":{"code":503,"status":"UNAVAILABLE"}}', { status: 503 });
+
+test("gemini: a busy model is retried once, then the next model answers and keeps the turn", async () => {
+  resetGeminiModelMemory();
+  const { calls, fetchImpl } = fakeGemini((model) => {
+    if (model === "gemini-3.8-flash") return busy();
+    const step = calls.filter((c) => c.model === model).length;
+    return step === 1
+      ? geminiJson([{ functionCall: { name: "get_funds", args: {} }, thoughtSignature: "sig-36" }])
+      : geminiJson([{ text: "You have 10 lakh rupees." }]);
+  });
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "cash?" }], provider, now: () => T0 });
+
+  assert.deepEqual(
+    calls.map((c) => c.model),
+    ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.6-flash"],
+  );
+  assert.equal(result.provider, "gemini");
+  assert.equal(result.model, "gemini-3.6-flash");
+  assert.equal(result.reply, "You have 10 lakh rupees.");
+  assert.equal(calls[3]!.body.contents[1].parts[0].thoughtSignature, "sig-36");
+
+  // The next turn starts with the model that worked.
+  const second = fakeGemini(() => geminiJson([{ text: "Hi." }]));
+  const again = createGeminiProvider({ apiKey: "k", fetch: second.fetchImpl });
+  const next = await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider: again, now: () => T0 });
+  assert.deepEqual(second.calls.map((c) => c.model), ["gemini-3.6-flash"]);
+  assert.equal(next.model, "gemini-3.6-flash");
+  resetGeminiModelMemory();
+});
+
+test("gemini: 2.5 models get a zero thinking budget instead of a thinking level", async () => {
+  resetGeminiModelMemory();
+  assert.deepEqual(geminiThinkingConfig("gemini-2.5-flash", "low"), { thinkingBudget: 0 });
+  assert.deepEqual(geminiThinkingConfig("gemini-3.6-flash", "minimal"), { thinkingLevel: "minimal" });
+
+  const { calls, fetchImpl } = fakeGemini((model) => (model.startsWith("gemini-3") ? busy() : geminiJson([{ text: "Hi." }])));
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider, now: () => T0 });
+  assert.equal(result.model, "gemini-2.5-flash");
+  const last = calls.at(-1)!;
+  assert.equal(last.model, "gemini-2.5-flash");
+  assert.deepEqual(last.body.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
+  for (const c of calls.slice(0, -1)) assert.deepEqual(c.body.generationConfig, { thinkingConfig: { thinkingLevel: "low" } });
+  resetGeminiModelMemory();
+});
+
+test("gemini: the turn gives up when its time budget is spent, and the agent falls back to rules", async () => {
+  resetGeminiModelMemory();
+  const hanging = ((_url: string, init: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+    })) as typeof fetch;
+  const provider = createGeminiProvider({ apiKey: "k", fetch: hanging, timeoutMs: 40, turnBudgetMs: 150, retryDelayMs: 5 });
+  const started = Date.now();
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "price of wipro" }], provider, now: () => T0 });
+  assert.ok(Date.now() - started < 1_000, "should stop near the budget");
+  assert.equal(result.provider, "rules");
+  assert.match(result.error!, /budget|timed out/);
+  assert.match(result.reply, /^Wipro is at /);
+  resetGeminiModelMemory();
+});
+
+test("gemini: errors that retrying can't fix are thrown straight away", async () => {
+  resetGeminiModelMemory();
+  const { calls, fetchImpl } = fakeGemini(() => new Response("bad request", { status: 400 }));
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider, now: () => T0 });
+  assert.equal(calls.length, 1);
+  assert.equal(result.provider, "rules");
+  assert.match(result.error!, /returned 400/);
 });

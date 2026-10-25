@@ -52,10 +52,17 @@ export interface ProviderTurn {
     pendingPreview: Preview | null;
 }
 export type ProviderName = "anthropic" | "gemini" | "rules";
+/** What a provider returns when it wants to say more than the reply text. */
+export interface ProviderReply {
+    reply: string;
+    /** The model that actually answered, if it differs from `Provider.model` (for example after a fallback). */
+    model?: string;
+}
 export interface Provider {
     name: ProviderName;
+    /** The model the provider tries first. */
     model?: string;
-    /** Run one user turn, calling tools as needed, and return the reply text. */
-    run(turn: ProviderTurn): Promise<string>;
+    /** Run one user turn, calling tools as needed, and return the reply. */
+    run(turn: ProviderTurn): Promise<string | ProviderReply>;
 }
 export type Env = Record<string, string | undefined>;
