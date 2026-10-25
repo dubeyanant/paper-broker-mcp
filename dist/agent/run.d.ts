@@ -1,6 +1,8 @@
 import type { AgentEvent, AgentState, ChatMessage, Env, Provider, ProviderName } from "./types.ts";
 export declare const DEFAULT_MAX_STEPS = 6;
 export declare const DEFAULT_MAX_HISTORY = 20;
+/** Tools that change the account. Once one succeeds, a turn can't be replayed from the start. */
+export declare const STATE_CHANGING_TOOLS: ReadonlySet<string>;
 /**
  * Pick a provider from the environment: Anthropic if ANTHROPIC_API_KEY is
  * set, else Gemini if GEMINI_API_KEY is set, else the offline rules parser.
@@ -34,7 +36,7 @@ export interface AgentTurnResult {
     /** Which provider produced the reply. */
     provider: ProviderName;
     model?: string;
-    /** Set when the chosen provider failed and the turn fell back to the rules parser. */
+    /** Set when the chosen provider failed; the reply then came from the rules parser or from a completed order. */
     error?: string;
 }
 /**
@@ -45,5 +47,10 @@ export interface AgentTurnResult {
  * Safety: `place_order` is only allowed for the preview the user was asked
  * about in the previous turn. A preview made during this turn can't be placed
  * until the user answers, whatever the model decides.
+ *
+ * If the model fails, the rules parser answers instead, replayed from the
+ * original state so its events stand on their own. The exception is a failure
+ * after an order was placed or cancelled: that can't be undone, so the reply
+ * describes it.
  */
 export declare function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentTurnResult>;

@@ -2,13 +2,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { PaperBroker } from "../broker/broker.ts";
-import { initialState, type Preview } from "../broker/state.ts";
+import { initialState, type BrokerState, type Preview } from "../broker/state.ts";
 import { createServer } from "../server.ts";
 import { VERSION } from "../version.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { createAnthropicProvider } from "./providers/anthropic.ts";
 import { createGeminiProvider } from "./providers/gemini.ts";
-import { createRulesProvider } from "./providers/rules.ts";
+import { cancelledReply, createRulesProvider, placedReply, type OrderResult } from "./providers/rules.ts";
 import { toSpeakable } from "./speech.ts";
 import type {
   AgentEvent,
@@ -18,6 +18,7 @@ import type {
   Provider,
   ProviderName,
   ProviderReply,
+  ProviderTurn,
   ToolOutcome,
   ToolSpec,
 } from "./types.ts";
@@ -26,6 +27,8 @@ export const DEFAULT_MAX_STEPS = 6;
 export const DEFAULT_MAX_HISTORY = 20;
 /** Hard cap on tool calls in one turn, whatever the model does. */
 const MAX_TOOL_CALLS = 12;
+/** Tools that change the account. Once one succeeds, a turn can't be replayed from the start. */
+export const STATE_CHANGING_TOOLS: ReadonlySet<string> = new Set(["place_order", "cancel_order"]);
 
 function readEnv(env?: Env): Env {
   if (env) return env;
@@ -98,7 +101,7 @@ export interface AgentTurnResult {
   /** Which provider produced the reply. */
   provider: ProviderName;
   model?: string;
-  /** Set when the chosen provider failed and the turn fell back to the rules parser. */
+  /** Set when the chosen provider failed; the reply then came from the rules parser or from a completed order. */
   error?: string;
 }
 
@@ -133,26 +136,25 @@ function trimHistory(messages: ChatMessage[], max: number): ChatMessage[] {
   return recent;
 }
 
+interface Session {
+  broker: PaperBroker;
+  events: AgentEvent[];
+  tools: ToolSpec[];
+  callTool: (name: string, args: Record<string, unknown>) => Promise<ToolOutcome>;
+  /** The last place_order or cancel_order that succeeded, if any. */
+  committed: () => { name: string; result: unknown } | null;
+  /** Previews that existed when the session opened. */
+  before: Set<string>;
+  close: () => Promise<void>;
+}
+
 /**
- * Run one conversational turn: connect an MCP client to a fresh server over an
- * in-memory transport, let the provider call tools, and return the reply,
- * the tool events and the updated state.
- *
- * Safety: `place_order` is only allowed for the preview the user was asked
- * about in the previous turn. A preview made during this turn can't be placed
- * until the user answers, whatever the model decides.
+ * Load the account, keep only the pending preview, and connect an MCP client
+ * to a fresh server over an in-memory transport.
  */
-export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentTurnResult> {
-  checkMessages(options.messages);
-  const now = options.now ?? Date.now;
-  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
-
-  const { broker: brokerState, pendingPreviewId } = splitState(options.state);
-  const broker = PaperBroker.fromState(brokerState ?? initialState(), { now });
-
+async function openSession(state: BrokerState, pending: Preview | null, now: () => number): Promise<Session> {
+  const broker = new PaperBroker(state, { now });
   // Only the pending preview survives into this turn; anything else is stale.
-  // An expired pending preview is kept so the user hears "expired" rather than "nothing to confirm".
-  const pending: Preview | null = (pendingPreviewId && broker.toState().previews[pendingPreviewId]) || null;
   for (const id of Object.keys(broker.toState().previews)) {
     if (id !== pending?.id) broker.discardPreview(id);
   }
@@ -165,11 +167,13 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
 
   const events: AgentEvent[] = [];
   let toolCalls = 0;
+  let committed: { name: string; result: unknown } | null = null;
 
   const callTool = async (name: string, args: Record<string, unknown>): Promise<ToolOutcome> => {
     events.push({ type: "tool_call", name, args });
     const finish = (outcome: ToolOutcome): ToolOutcome => {
       events.push({ type: "tool_result", name, result: outcome.result, isError: outcome.isError });
+      if (!outcome.isError && STATE_CHANGING_TOOLS.has(name)) committed = { name, result: outcome.result };
       return outcome;
     };
 
@@ -200,6 +204,52 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     return { name: t.name, description: t.description ?? "", inputSchema: schema };
   });
 
+  return {
+    broker,
+    events,
+    tools,
+    callTool,
+    committed: () => committed,
+    before: new Set(Object.keys(broker.toState().previews)),
+    close: async () => {
+      await client.close();
+      await server.close();
+    },
+  };
+}
+
+/** A reply built from a place_order or cancel_order result, for when the model failed right after it. */
+function committedReply(done: { name: string; result: unknown }): string {
+  const order = (done.result as { order?: OrderResult } | null)?.order;
+  if (!order) return "Done.";
+  return done.name === "cancel_order" ? cancelledReply(order) : placedReply(order);
+}
+
+/**
+ * Run one conversational turn: connect an MCP client to a fresh server over an
+ * in-memory transport, let the provider call tools, and return the reply,
+ * the tool events and the updated state.
+ *
+ * Safety: `place_order` is only allowed for the preview the user was asked
+ * about in the previous turn. A preview made during this turn can't be placed
+ * until the user answers, whatever the model decides.
+ *
+ * If the model fails, the rules parser answers instead, replayed from the
+ * original state so its events stand on their own. The exception is a failure
+ * after an order was placed or cancelled: that can't be undone, so the reply
+ * describes it.
+ */
+export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentTurnResult> {
+  checkMessages(options.messages);
+  const now = options.now ?? Date.now;
+  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
+
+  const { broker: brokerState, pendingPreviewId } = splitState(options.state);
+  // Validate once up front, so bad state is the caller's error rather than a model failure.
+  const initial = PaperBroker.fromState(brokerState ?? initialState(), { now }).toState();
+  // An expired pending preview is kept so the user hears "expired" rather than "nothing to confirm".
+  const pending: Preview | null = (pendingPreviewId && initial.previews[pendingPreviewId]) || null;
+
   const provider =
     typeof options.provider === "object"
       ? options.provider
@@ -207,40 +257,46 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
         ? providerByName(options.provider, options.env)
         : pickProvider(options.env);
 
-  const before = new Set(Object.keys(broker.toState().previews));
-  const turn = {
+  const makeTurn = (session: Session): ProviderTurn => ({
     system: buildSystemPrompt(pending, now()),
     messages: trimHistory(options.messages, options.maxHistory ?? DEFAULT_MAX_HISTORY),
-    tools,
-    callTool,
+    tools: session.tools,
+    callTool: session.callTool,
     maxSteps,
     pendingPreview: pending,
-  };
-
+  });
   const unwrap = (out: string | ProviderReply): ProviderReply => (typeof out === "string" ? { reply: out } : out);
+
+  let session = await openSession(initial, pending, now);
   let reply: string;
   let used: Provider = provider;
   let model = provider.model;
   let error: string | undefined;
   try {
-    const out = unwrap(await provider.run(turn));
+    const out = unwrap(await provider.run(makeTurn(session)));
     reply = out.reply;
     model = out.model ?? provider.model;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
-    if (events.length === 0 && provider.name !== "rules") {
-      // The model was unreachable before it did anything; answer with the rules parser instead.
+    const done = session.committed();
+    if (done) {
+      // An order was placed or cancelled before the failure. Say so rather than apologise.
+      reply = committedReply(done);
+    } else if (provider.name !== "rules") {
+      // Nothing changed, so answer with the rules parser, starting again from the original state.
+      await session.close();
+      session = await openSession(initial, pending, now);
       used = createRulesProvider();
       model = undefined;
-      reply = unwrap(await used.run(turn)).reply;
+      reply = unwrap(await used.run(makeTurn(session))).reply;
     } else {
       reply = "Sorry, something went wrong on my side. Please try again.";
     }
   } finally {
-    await client.close();
-    await server.close();
+    await session.close();
   }
 
+  const { broker, events, before } = session;
   // The newest preview made this turn becomes the pending one. Older ones are dropped.
   const created = broker.activePreviews().filter((p) => !before.has(p.id));
   const nextPending = created.at(-1) ?? null;

@@ -19,7 +19,7 @@ interface SearchResult {
   name: string;
   spokenName: string;
 }
-interface OrderResult {
+export interface OrderResult {
   id: string;
   symbol: string;
   side: "BUY" | "SELL";
@@ -50,6 +50,21 @@ function verbPast(o: OrderResult): string {
   return o.side === "BUY" ? "Bought" : "Sold";
 }
 
+/** What to say after place_order succeeded. Also used when a model failed right after placing. */
+export function placedReply(order: OrderResult): string {
+  const name = spokenName(order.symbol);
+  if (order.status === "FILLED") return `Done. ${verbPast(order)} ${shares(order.qty)} of ${name} at ${speakRupees(order.fillPrice!)}.`;
+  if (order.status === "OPEN") {
+    return `Done. Your limit order to ${order.side.toLowerCase()} ${shares(order.qty)} of ${name} at ${speakRupees(order.limitPrice!)} is open as ${order.id}.`;
+  }
+  return `That order was rejected. ${order.reason ?? ""}`.trim();
+}
+
+/** What to say after cancel_order succeeded. */
+export function cancelledReply(order: OrderResult): string {
+  return `Cancelled ${order.id}, the order to ${order.side.toLowerCase()} ${spokenName(order.symbol)}.`;
+}
+
 async function handle(cmd: Command, turn: ProviderTurn): Promise<string> {
   const { callTool, pendingPreview } = turn;
 
@@ -61,13 +76,7 @@ async function handle(cmd: Command, turn: ProviderTurn): Promise<string> {
         const expired = (res.result as { error?: { code?: string } })?.error?.code === "PREVIEW_EXPIRED";
         return expired ? "That preview expired. Say the order again and I'll make a fresh one." : errorLine(res);
       }
-      const order = data<{ order: OrderResult }>(res).order;
-      const name = spokenName(order.symbol);
-      if (order.status === "FILLED") return `Done. ${verbPast(order)} ${shares(order.qty)} of ${name} at ${speakRupees(order.fillPrice!)}.`;
-      if (order.status === "OPEN") {
-        return `Done. Your limit order to ${order.side.toLowerCase()} ${shares(order.qty)} of ${name} at ${speakRupees(order.limitPrice!)} is open as ${order.id}.`;
-      }
-      return `That order was rejected. ${order.reason ?? ""}`.trim();
+      return placedReply(data<{ order: OrderResult }>(res).order);
     }
 
     case "deny":
@@ -152,8 +161,7 @@ async function handle(cmd: Command, turn: ProviderTurn): Promise<string> {
       }
       const res = await callTool("cancel_order", { order_id: id });
       if (res.isError) return errorLine(res);
-      const o = data<{ order: OrderResult }>(res).order;
-      return `Cancelled ${o.id}, the order to ${o.side.toLowerCase()} ${spokenName(o.symbol)}.`;
+      return cancelledReply(data<{ order: OrderResult }>(res).order);
     }
 
     case "advice":

@@ -12,7 +12,7 @@ import {
   type ChatMessage,
   type Provider,
 } from "../src/agent/index.ts";
-import { priceAt } from "../src/index.ts";
+import { priceAt, speakRupees } from "../src/index.ts";
 
 const T0 = Date.parse("2026-03-02T05:30:00Z");
 
@@ -384,4 +384,85 @@ test("gemini: errors that retrying can't fix are thrown straight away", async ()
   assert.equal(calls.length, 1);
   assert.equal(result.provider, "rules");
   assert.match(result.error!, /returned 400/);
+});
+
+test("gemini: a quota error mid-turn restarts the turn on the next model", async () => {
+  resetGeminiModelMemory();
+  const quota = () => new Response('{"error":{"code":429,"message":"You exceeded your current quota"}}', { status: 429 });
+  const { calls, fetchImpl } = fakeGemini((model) => {
+    const step = calls.filter((c) => c.model === model).length;
+    if (step === 1) return geminiJson([{ functionCall: { name: "search_instruments", args: { query: "reliance" } } }]);
+    return model === "gemini-3.8-flash" ? quota() : geminiJson([{ text: "Found Reliance." }]);
+  });
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "find reliance" }], provider, now: () => T0 });
+
+  // No retry on an exhausted quota; the turn starts over from the user's message on the next model.
+  assert.deepEqual(
+    calls.map((c) => c.model),
+    ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.6-flash"],
+  );
+  assert.equal(calls[2]!.body.contents.length, 1);
+  assert.equal(result.provider, "gemini");
+  assert.equal(result.model, "gemini-3.6-flash");
+  assert.equal(result.reply, "Found Reliance.");
+  assert.equal(result.error, undefined);
+
+  // The out-of-quota model goes to the back of the line for a minute.
+  const later = fakeGemini(() => geminiJson([{ text: "Hi." }]));
+  const other = createGeminiProvider({ apiKey: "k", fetch: later.fetchImpl, fallbackModels: ["gemini-2.5-flash"] });
+  await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider: other, now: () => T0 });
+  assert.equal(later.calls[0]!.model, "gemini-2.5-flash");
+  resetGeminiModelMemory();
+});
+
+test("when every model fails after a read-only tool, the rules parser answers from the original state", async () => {
+  resetGeminiModelMemory();
+  const { calls, fetchImpl } = fakeGemini((model) => {
+    const step = calls.filter((c) => c.model === model).length;
+    return step === 1 ? geminiJson([{ functionCall: { name: "get_funds", args: {} } }]) : busy();
+  });
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "how much cash do I have" }], provider, now: () => T0 });
+
+  assert.equal(new Set(calls.map((c) => c.model)).size, 3, "all three models were tried");
+  assert.equal(result.provider, "rules");
+  assert.equal(result.model, undefined);
+  assert.match(result.error!, /503/);
+  assert.equal(result.reply, "You have 10 lakh rupees available to trade.");
+  // Only the rules run's events are reported, not the abandoned model attempts.
+  assert.deepEqual(result.events.map((e) => `${e.type}:${e.name}`), ["tool_call:get_funds", "tool_result:get_funds"]);
+  resetGeminiModelMemory();
+});
+
+test("if the model fails after placing an order, the reply describes the order", async () => {
+  resetGeminiModelMemory();
+  const chat = conversation();
+  await chat.say("buy 10 reliance");
+  const pendingId = chat.state!.pendingPreviewId!;
+
+  const { calls, fetchImpl } = fakeGemini((model) => {
+    const step = calls.filter((c) => c.model === model).length;
+    return step === 1 ? geminiJson([{ functionCall: { name: "place_order", args: { preview_id: pendingId } } }]) : busy();
+  });
+  const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
+  const result = await runAgentTurn({
+    messages: [
+      { role: "user", content: "buy 10 reliance" },
+      { role: "assistant", content: "Shall I place it?" },
+      { role: "user", content: "yes" },
+    ],
+    state: chat.state,
+    provider,
+    now: () => chat.clock.t,
+  });
+
+  // The turn is not restarted on another model, because the order already went through.
+  assert.deepEqual(new Set(calls.map((c) => c.model)), new Set(["gemini-3.8-flash"]));
+  assert.equal(result.provider, "gemini");
+  assert.match(result.error!, /503/);
+  assert.equal(result.reply, `Done. Bought 10 shares of Reliance at ${speakRupees(priceAt("RELIANCE", chat.clock.t))}.`);
+  assert.equal(result.state.positions.RELIANCE?.qty, 10);
+  assert.ok(result.events.some((e) => e.type === "tool_result" && e.name === "place_order" && !e.isError));
+  resetGeminiModelMemory();
 });

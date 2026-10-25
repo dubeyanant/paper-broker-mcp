@@ -23,6 +23,20 @@ async function resolve(callTool, name) {
 function verbPast(o) {
     return o.side === "BUY" ? "Bought" : "Sold";
 }
+/** What to say after place_order succeeded. Also used when a model failed right after placing. */
+export function placedReply(order) {
+    const name = spokenName(order.symbol);
+    if (order.status === "FILLED")
+        return `Done. ${verbPast(order)} ${shares(order.qty)} of ${name} at ${speakRupees(order.fillPrice)}.`;
+    if (order.status === "OPEN") {
+        return `Done. Your limit order to ${order.side.toLowerCase()} ${shares(order.qty)} of ${name} at ${speakRupees(order.limitPrice)} is open as ${order.id}.`;
+    }
+    return `That order was rejected. ${order.reason ?? ""}`.trim();
+}
+/** What to say after cancel_order succeeded. */
+export function cancelledReply(order) {
+    return `Cancelled ${order.id}, the order to ${order.side.toLowerCase()} ${spokenName(order.symbol)}.`;
+}
 async function handle(cmd, turn) {
     const { callTool, pendingPreview } = turn;
     switch (cmd.kind) {
@@ -34,14 +48,7 @@ async function handle(cmd, turn) {
                 const expired = res.result?.error?.code === "PREVIEW_EXPIRED";
                 return expired ? "That preview expired. Say the order again and I'll make a fresh one." : errorLine(res);
             }
-            const order = data(res).order;
-            const name = spokenName(order.symbol);
-            if (order.status === "FILLED")
-                return `Done. ${verbPast(order)} ${shares(order.qty)} of ${name} at ${speakRupees(order.fillPrice)}.`;
-            if (order.status === "OPEN") {
-                return `Done. Your limit order to ${order.side.toLowerCase()} ${shares(order.qty)} of ${name} at ${speakRupees(order.limitPrice)} is open as ${order.id}.`;
-            }
-            return `That order was rejected. ${order.reason ?? ""}`.trim();
+            return placedReply(data(res).order);
         }
         case "deny":
             return pendingPreview ? "Okay, I won't place it." : "Okay.";
@@ -127,8 +134,7 @@ async function handle(cmd, turn) {
             const res = await callTool("cancel_order", { order_id: id });
             if (res.isError)
                 return errorLine(res);
-            const o = data(res).order;
-            return `Cancelled ${o.id}, the order to ${o.side.toLowerCase()} ${spokenName(o.symbol)}.`;
+            return cancelledReply(data(res).order);
         }
         case "advice":
             return "I can't give investment advice. I can look up simulated prices and place paper trades for you.";
