@@ -12,13 +12,21 @@ export interface Instrument {
     name: string;
     /** Short name that sounds natural when spoken, e.g. "Reliance". */
     shortName: string;
+    /** Short name in Devanagari, for Hindi replies. */
+    hindiName: string;
     sector: string;
-    /** Extra names people say out loud. Matched case-insensitively. */
+    /** Extra names people say out loud, in English and Hindi. Matched case-insensitively. */
     aliases: string[];
     basePrice: number;
 }
 export declare const INSTRUMENTS: readonly Instrument[];
-/** Lowercase, turn "&" into "and", drop punctuation and squeeze spaces. */
+/**
+ * Make Devanagari spellings comparable: drop the nukta dot (ज़ -> ज) and
+ * treat chandrabindu like anusvara (हाँ -> हां). People and speech-to-text
+ * engines are inconsistent about both.
+ */
+export declare function foldDevanagari(text: string): string;
+/** Lowercase, turn "&" into "and", drop punctuation and squeeze spaces. Keeps Devanagari letters. */
 export declare function normalizeName(text: string): string;
 export declare function getInstrument(symbol: string): Instrument | undefined;
 export interface SearchMatch {

@@ -41,7 +41,7 @@ export function pickProvider(env?: Env): Provider {
     return createAnthropicProvider({ apiKey: e.ANTHROPIC_API_KEY, ...(e.ANTHROPIC_MODEL ? { model: e.ANTHROPIC_MODEL } : {}) });
   }
   if (e.GEMINI_API_KEY) {
-    return createGeminiProvider({ apiKey: e.GEMINI_API_KEY, ...(e.GEMINI_MODEL ? { model: e.GEMINI_MODEL } : {}) });
+    return geminiFromEnv(e, e.GEMINI_API_KEY);
   }
   return createRulesProvider();
 }
@@ -56,8 +56,16 @@ function providerByName(name: ProviderName, env?: Env): Provider {
       return createAnthropicProvider({ apiKey: e.ANTHROPIC_API_KEY, ...(e.ANTHROPIC_MODEL ? { model: e.ANTHROPIC_MODEL } : {}) });
     case "gemini":
       if (!e.GEMINI_API_KEY) throw new Error("provider 'gemini' needs GEMINI_API_KEY");
-      return createGeminiProvider({ apiKey: e.GEMINI_API_KEY, ...(e.GEMINI_MODEL ? { model: e.GEMINI_MODEL } : {}) });
+      return geminiFromEnv(e, e.GEMINI_API_KEY);
   }
+}
+
+function geminiFromEnv(e: Env, apiKey: string): Provider {
+  return createGeminiProvider({
+    apiKey,
+    ...(e.GEMINI_MODEL ? { model: e.GEMINI_MODEL } : {}),
+    ...(e.GEMINI_THINKING_LEVEL ? { thinkingLevel: e.GEMINI_THINKING_LEVEL } : {}),
+  });
 }
 
 export interface RunAgentTurnOptions {

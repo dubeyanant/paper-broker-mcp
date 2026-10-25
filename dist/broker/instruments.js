@@ -6,34 +6,42 @@
  * but nothing here tracks the real market.
  */
 export const INSTRUMENTS = [
-    { symbol: "RELIANCE", name: "Reliance Industries", shortName: "Reliance", sector: "Energy", aliases: ["reliance", "ril", "reliance industries"], basePrice: 2950 },
-    { symbol: "TCS", name: "Tata Consultancy Services", shortName: "TCS", sector: "IT", aliases: ["tcs", "tata consultancy", "tata consultancy services"], basePrice: 4050 },
-    { symbol: "HDFCBANK", name: "HDFC Bank", shortName: "HDFC Bank", sector: "Banking", aliases: ["hdfc bank", "hdfc"], basePrice: 1680 },
-    { symbol: "INFY", name: "Infosys", shortName: "Infosys", sector: "IT", aliases: ["infosys", "infy", "info sys"], basePrice: 1850 },
-    { symbol: "ICICIBANK", name: "ICICI Bank", shortName: "ICICI Bank", sector: "Banking", aliases: ["icici bank", "icici"], basePrice: 1260 },
-    { symbol: "SBIN", name: "State Bank of India", shortName: "SBI", sector: "Banking", aliases: ["sbi", "state bank", "state bank of india", "sbin"], basePrice: 820 },
-    { symbol: "ITC", name: "ITC", shortName: "ITC", sector: "Consumer", aliases: ["itc"], basePrice: 470 },
-    { symbol: "LT", name: "Larsen & Toubro", shortName: "L and T", sector: "Infrastructure", aliases: ["l and t", "l&t", "lt", "larsen", "larsen and toubro", "larsen & toubro", "l n t"], basePrice: 3600 },
-    { symbol: "BHARTIARTL", name: "Bharti Airtel", shortName: "Airtel", sector: "Telecom", aliases: ["airtel", "bharti airtel", "bharti"], basePrice: 1620 },
-    { symbol: "HINDUNILVR", name: "Hindustan Unilever", shortName: "Hindustan Unilever", sector: "Consumer", aliases: ["hindustan unilever", "hul", "unilever", "hindunilvr"], basePrice: 2480 },
-    { symbol: "KOTAKBANK", name: "Kotak Mahindra Bank", shortName: "Kotak Bank", sector: "Banking", aliases: ["kotak", "kotak bank", "kotak mahindra", "kotak mahindra bank"], basePrice: 1790 },
-    { symbol: "AXISBANK", name: "Axis Bank", shortName: "Axis Bank", sector: "Banking", aliases: ["axis", "axis bank"], basePrice: 1150 },
-    { symbol: "BAJFINANCE", name: "Bajaj Finance", shortName: "Bajaj Finance", sector: "Financials", aliases: ["bajaj finance", "bajfinance", "bajaj fin"], basePrice: 7100 },
-    { symbol: "MARUTI", name: "Maruti Suzuki India", shortName: "Maruti", sector: "Auto", aliases: ["maruti", "maruti suzuki", "suzuki"], basePrice: 12400 },
-    { symbol: "TATAMOTORS", name: "Tata Motors", shortName: "Tata Motors", sector: "Auto", aliases: ["tata motors", "tata motor", "tatamotors"], basePrice: 960 },
-    { symbol: "SUNPHARMA", name: "Sun Pharmaceutical Industries", shortName: "Sun Pharma", sector: "Pharma", aliases: ["sun pharma", "sun pharmaceutical", "sunpharma"], basePrice: 1760 },
-    { symbol: "WIPRO", name: "Wipro", shortName: "Wipro", sector: "IT", aliases: ["wipro"], basePrice: 530 },
-    { symbol: "ASIANPAINT", name: "Asian Paints", shortName: "Asian Paints", sector: "Consumer", aliases: ["asian paints", "asian paint", "asianpaint"], basePrice: 2870 },
-    { symbol: "TITAN", name: "Titan Company", shortName: "Titan", sector: "Consumer", aliases: ["titan", "titan company"], basePrice: 3420 },
-    { symbol: "ADANIENT", name: "Adani Enterprises", shortName: "Adani Enterprises", sector: "Conglomerate", aliases: ["adani", "adani enterprises", "adanient"], basePrice: 2980 },
+    { symbol: "RELIANCE", name: "Reliance Industries", shortName: "Reliance", hindiName: "रिलायंस", sector: "Energy", aliases: ["reliance", "ril", "reliance industries", "रिलायंस", "रिलायंस इंडस्ट्रीज"], basePrice: 2950 },
+    { symbol: "TCS", name: "Tata Consultancy Services", shortName: "TCS", hindiName: "टीसीएस", sector: "IT", aliases: ["tcs", "tata consultancy", "tata consultancy services", "टीसीएस", "टाटा कंसल्टेंसी"], basePrice: 4050 },
+    { symbol: "HDFCBANK", name: "HDFC Bank", shortName: "HDFC Bank", hindiName: "एचडीएफसी बैंक", sector: "Banking", aliases: ["hdfc bank", "hdfc", "एचडीएफसी बैंक", "एचडीएफसी"], basePrice: 1680 },
+    { symbol: "INFY", name: "Infosys", shortName: "Infosys", hindiName: "इंफोसिस", sector: "IT", aliases: ["infosys", "infy", "info sys", "इंफोसिस", "इन्फोसिस"], basePrice: 1850 },
+    { symbol: "ICICIBANK", name: "ICICI Bank", shortName: "ICICI Bank", hindiName: "आईसीआईसीआई बैंक", sector: "Banking", aliases: ["icici bank", "icici", "आईसीआईसीआई बैंक", "आईसीआईसीआई"], basePrice: 1260 },
+    { symbol: "SBIN", name: "State Bank of India", shortName: "SBI", hindiName: "एसबीआई", sector: "Banking", aliases: ["sbi", "state bank", "state bank of india", "sbin", "एसबीआई", "स्टेट बैंक", "भारतीय स्टेट बैंक"], basePrice: 820 },
+    { symbol: "ITC", name: "ITC", shortName: "ITC", hindiName: "आईटीसी", sector: "Consumer", aliases: ["itc", "आईटीसी"], basePrice: 470 },
+    { symbol: "LT", name: "Larsen & Toubro", shortName: "L and T", hindiName: "एल एंड टी", sector: "Infrastructure", aliases: ["l and t", "l&t", "lt", "larsen", "larsen and toubro", "larsen & toubro", "l n t", "एल एंड टी", "एल एन टी", "एलएंडटी", "लार्सन"], basePrice: 3600 },
+    { symbol: "BHARTIARTL", name: "Bharti Airtel", shortName: "Airtel", hindiName: "एयरटेल", sector: "Telecom", aliases: ["airtel", "bharti airtel", "bharti", "एयरटेल", "भारती एयरटेल"], basePrice: 1620 },
+    { symbol: "HINDUNILVR", name: "Hindustan Unilever", shortName: "Hindustan Unilever", hindiName: "हिंदुस्तान यूनिलीवर", sector: "Consumer", aliases: ["hindustan unilever", "hul", "unilever", "hindunilvr", "हिंदुस्तान यूनिलीवर", "यूनिलीवर", "एचयूएल"], basePrice: 2480 },
+    { symbol: "KOTAKBANK", name: "Kotak Mahindra Bank", shortName: "Kotak Bank", hindiName: "कोटक बैंक", sector: "Banking", aliases: ["kotak", "kotak bank", "kotak mahindra", "kotak mahindra bank", "कोटक बैंक", "कोटक", "कोटक महिंद्रा"], basePrice: 1790 },
+    { symbol: "AXISBANK", name: "Axis Bank", shortName: "Axis Bank", hindiName: "एक्सिस बैंक", sector: "Banking", aliases: ["axis", "axis bank", "एक्सिस बैंक", "एक्सिस"], basePrice: 1150 },
+    { symbol: "BAJFINANCE", name: "Bajaj Finance", shortName: "Bajaj Finance", hindiName: "बजाज फाइनेंस", sector: "Financials", aliases: ["bajaj finance", "bajfinance", "bajaj fin", "बजाज फाइनेंस", "बजाज फायनेंस"], basePrice: 7100 },
+    { symbol: "MARUTI", name: "Maruti Suzuki India", shortName: "Maruti", hindiName: "मारुति", sector: "Auto", aliases: ["maruti", "maruti suzuki", "suzuki", "मारुति", "मारुती", "मारुति सुजुकी"], basePrice: 12400 },
+    { symbol: "TATAMOTORS", name: "Tata Motors", shortName: "Tata Motors", hindiName: "टाटा मोटर्स", sector: "Auto", aliases: ["tata motors", "tata motor", "tatamotors", "टाटा मोटर्स", "टाटा मोटर"], basePrice: 960 },
+    { symbol: "SUNPHARMA", name: "Sun Pharmaceutical Industries", shortName: "Sun Pharma", hindiName: "सन फार्मा", sector: "Pharma", aliases: ["sun pharma", "sun pharmaceutical", "sunpharma", "सन फार्मा"], basePrice: 1760 },
+    { symbol: "WIPRO", name: "Wipro", shortName: "Wipro", hindiName: "विप्रो", sector: "IT", aliases: ["wipro", "विप्रो"], basePrice: 530 },
+    { symbol: "ASIANPAINT", name: "Asian Paints", shortName: "Asian Paints", hindiName: "एशियन पेंट्स", sector: "Consumer", aliases: ["asian paints", "asian paint", "asianpaint", "एशियन पेंट्स", "एशियन पेंट"], basePrice: 2870 },
+    { symbol: "TITAN", name: "Titan Company", shortName: "Titan", hindiName: "टाइटन", sector: "Consumer", aliases: ["titan", "titan company", "टाइटन"], basePrice: 3420 },
+    { symbol: "ADANIENT", name: "Adani Enterprises", shortName: "Adani Enterprises", hindiName: "अदाणी एंटरप्राइजेज", sector: "Conglomerate", aliases: ["adani", "adani enterprises", "adanient", "अदाणी एंटरप्राइजेज", "अदानी एंटरप्राइजेज", "अदाणी", "अदानी"], basePrice: 2980 },
 ];
 const BY_SYMBOL = new Map(INSTRUMENTS.map((i) => [i.symbol, i]));
-/** Lowercase, turn "&" into "and", drop punctuation and squeeze spaces. */
+/**
+ * Make Devanagari spellings comparable: drop the nukta dot (ज़ -> ज) and
+ * treat chandrabindu like anusvara (हाँ -> हां). People and speech-to-text
+ * engines are inconsistent about both.
+ */
+export function foldDevanagari(text) {
+    return text.normalize("NFD").replace(/़/g, "").replace(/ँ/g, "ं").normalize("NFC");
+}
+/** Lowercase, turn "&" into "and", drop punctuation and squeeze spaces. Keeps Devanagari letters. */
 export function normalizeName(text) {
-    return text
-        .toLowerCase()
+    return foldDevanagari(text.toLowerCase())
         .replace(/&/g, " and ")
-        .replace(/[^a-z0-9 ]+/g, " ")
+        .replace(/[।॥]/g, " ")
+        .replace(/[^a-z0-9ऀ-ॿ ]+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 }

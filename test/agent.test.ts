@@ -178,7 +178,7 @@ test("gemini: function calls go through MCP and thought signatures are sent back
     { candidates: [{ content: { role: "model", parts: [{ text: "ITC is at **₹470.50**." }] }, finishReason: "STOP" }] },
   ];
   const fakeFetch = (async (url: string, init: RequestInit) => {
-    assert.match(url, /\/v1beta\/models\/gemini-3\.8-flash:generateContent$/);
+    assert.match(url, /\/v1beta\/models\/gemini-3\.8-flash:generateContent\?key=test-key$/);
     assert.equal((init.headers as Record<string, string>)["x-goog-api-key"], "test-key");
     bodies.push(JSON.parse(init.body as string));
     return new Response(JSON.stringify(replies.shift()), { status: 200 });
@@ -238,4 +238,61 @@ test("anthropic: tool_use blocks go through MCP and results come back in one mes
       ["tool_result", "tu2", false],
     ],
   );
+});
+
+test("gemini: asks for low thinking and sends the key as a query parameter", async () => {
+  const seen: Array<{ url: string; body: any }> = [];
+  const fakeFetch = (async (url: string, init: RequestInit) => {
+    seen.push({ url, body: JSON.parse(init.body as string) });
+    return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: "Hi." }] } }] }), { status: 200 });
+  }) as typeof fetch;
+
+  await runAgentTurn({
+    messages: [{ role: "user", content: "hello" }],
+    provider: createGeminiProvider({ apiKey: "k/1+2", fetch: fakeFetch }),
+    now: () => T0,
+  });
+  assert.deepEqual(seen[0]!.body.generationConfig, { thinkingConfig: { thinkingLevel: "low" } });
+  assert.equal(new URL(seen[0]!.url).searchParams.get("key"), "k/1+2");
+
+  // GEMINI_THINKING_LEVEL overrides the default.
+  const fromEnv = pickProvider({ GEMINI_API_KEY: "k", GEMINI_THINKING_LEVEL: "high" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fakeFetch;
+  try {
+    await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider: fromEnv, now: () => T0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(seen[1]!.body.generationConfig.thinkingConfig.thinkingLevel, "high");
+});
+
+test("gemini: errors name the step and elapsed time, and never include the key", async () => {
+  const turn = {
+    system: "",
+    messages: [{ role: "user" as const, content: "hi" }],
+    tools: [],
+    callTool: async () => ({ result: null, text: "", isError: false }),
+    maxSteps: 3,
+    pendingPreview: null,
+  };
+
+  const hanging = ((_url: string, init: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      init.signal!.addEventListener("abort", () => reject(init.signal!.reason));
+    })) as typeof fetch;
+  const slow = createGeminiProvider({ apiKey: "secret-key-123", fetch: hanging, timeoutMs: 30 });
+  await assert.rejects(slow.run(turn), (err: Error) => {
+    assert.match(err.message, /timed out at step 1 after \d+ ms/);
+    assert.doesNotMatch(err.message, /secret-key-123/);
+    return true;
+  });
+
+  const echoing = (async () => new Response("bad key secret-key-123", { status: 400 })) as unknown as typeof fetch;
+  const leaky = createGeminiProvider({ apiKey: "secret-key-123", fetch: echoing });
+  await assert.rejects(leaky.run(turn), (err: Error) => {
+    assert.match(err.message, /returned 400 at step 1 after \d+ ms/);
+    assert.doesNotMatch(err.message, /secret-key-123/);
+    return true;
+  });
 });
