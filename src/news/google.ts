@@ -81,18 +81,20 @@ export function googleNewsUrl(query: string, language: Language): string {
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code: string) => {
+    if (code[0] === "#") {
+      const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      return Number.isFinite(n) && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+    }
+    return ENTITIES[code.toLowerCase()] ?? m;
+  });
+}
+
 function decodeXml(text: string): string {
-  return text
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code: string) => {
-      if (code[0] === "#") {
-        const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-      }
-      return ENTITIES[code.toLowerCase()] ?? m;
-    })
-    .replace(/\s+/g, " ")
-    .trim();
+  const unwrapped = text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  // Some titles arrive double-encoded ("&amp;#39;"), so decode twice.
+  return decodeEntities(decodeEntities(unwrapped)).replace(/\s+/g, " ").trim();
 }
 
 function tag(block: string, name: string): string {
