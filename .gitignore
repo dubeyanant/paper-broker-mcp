@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.log
+.DS_Store
+coverage/
+# dist/ is committed on purpose: the package is installed straight from GitHub without a build step.

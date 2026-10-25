@@ -1,0 +1,58 @@
+{
+  "name": "paper-broker-mcp",
+  "version": "0.1.0",
+  "description": "An MCP server for a simulated NSE paper-trading account, plus a small agent loop for a voice trading demo. Simulated prices, no real money.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Anant Dubey",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dubeyanant/paper-broker-mcp.git"
+  },
+  "homepage": "https://github.com/dubeyanant/paper-broker-mcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "paper-trading",
+    "agent",
+    "voice",
+    "nse"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "default": "./dist/agent/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "paper-broker-mcp": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/bin.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
