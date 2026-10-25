@@ -123,7 +123,7 @@ Copy `.env.example` to `.env`. Every value is optional.
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Tried first. If it is busy or slow, the agent retries once and then falls back to `gemini-3.6-flash` and `gemini-2.5-flash`. |
 | `GEMINI_THINKING_LEVEL` | `low` | `low`, `medium` or `high` for Gemini 3 models. Lower is faster, which matters for voice. Gemini 2.5 always runs with thinking off. |
 
-Either key works. With neither, the agent uses a built-in rules parser that makes no network calls and drives the same MCP tools, so the events look the same. If a model call fails before any tool has run, the turn is answered by the rules parser and the result includes an `error` field.
+Either key works. With neither, the agent uses a built-in rules parser that makes no network calls and drives the same MCP tools, so the events look the same. If the model fails partway through a turn, the turn is replayed from the original state with the rules parser, and the result includes an `error` field. The one exception is a failure after an order was already placed or cancelled: that change stands, and the reply describes it.
 
 ## How the simulation works
 
