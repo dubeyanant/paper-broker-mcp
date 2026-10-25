@@ -8,7 +8,7 @@
  * them, so a turn never switches models halfway through its conversation.
  *
  * Busy or rate-limited models are common, so each turn walks a fallback
- * chain: the configured model, then gemini-3.6-flash, then gemini-2.5-flash.
+ * chain: the configured model, then gemini-3.6-flash, then gemini-3.5-flash-lite.
  * A 503, 429, 500, timeout or network error gets one quick retry on the same
  * model. If that fails too, the turn starts again from the original messages
  * on the next model, as long as no order has been placed or cancelled yet.
@@ -20,8 +20,11 @@ import type { Provider, ProviderReply, ProviderTurn } from "../types.ts";
 
 /** Gemini 3.8 Flash, listed as stable and recommended at https://ai.google.dev/gemini-api/docs/models */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
-export const DEFAULT_GEMINI_FALLBACKS: readonly string[] = ["gemini-3.6-flash", "gemini-2.5-flash"];
+export const DEFAULT_GEMINI_FALLBACKS: readonly string[] = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+/** Thinking level for Gemini 3 Flash models unless one is configured. */
 export const DEFAULT_GEMINI_THINKING_LEVEL = "low";
+/** Thinking level for Gemini 3 Flash-Lite models unless one is configured. */
+export const DEFAULT_GEMINI_LITE_THINKING_LEVEL = "minimal";
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 12_000;
 const DEFAULT_TURN_BUDGET_MS = 40_000;
@@ -52,12 +55,13 @@ export interface GeminiProviderOptions {
   apiKey: string;
   /** First model to try. Default gemini-3.8-flash. */
   model?: string;
-  /** Models to try after `model`, in order. Default gemini-3.6-flash, then gemini-2.5-flash. */
+  /** Models to try after `model`, in order. Default gemini-3.6-flash, then gemini-3.5-flash-lite. */
   fallbackModels?: readonly string[];
   /**
-   * Thinking level for Gemini 3 models: "low", "medium" or "high" (some also
-   * take "minimal"). Default "low" to keep voice replies quick. Gemini 2.5
-   * models always get a thinking budget of 0 instead.
+   * Thinking level for every Gemini 3 model in the chain: "minimal", "low",
+   * "medium" or "high" (gemini-3.8-flash does not take "minimal"). When unset,
+   * Flash models use "low" and Flash-Lite models "minimal", to keep voice
+   * replies quick. Gemini 2.x models always get a thinking budget of 0 instead.
    */
   thinkingLevel?: string;
   /** Timeout for a single request. Default 12 seconds. */
@@ -82,8 +86,10 @@ export function resetGeminiModelMemory(): void {
 }
 
 /** Gemini 2.x takes a thinking budget; Gemini 3 takes a thinking level. */
-export function geminiThinkingConfig(model: string, thinkingLevel: string): Record<string, unknown> {
-  return /^gemini-2\./.test(model) ? { thinkingBudget: 0 } : { thinkingLevel };
+export function geminiThinkingConfig(model: string, thinkingLevel?: string): Record<string, unknown> {
+  if (/^gemini-2\./.test(model)) return { thinkingBudget: 0 };
+  const fallback = /-lite\b/.test(model) ? DEFAULT_GEMINI_LITE_THINKING_LEVEL : DEFAULT_GEMINI_THINKING_LEVEL;
+  return { thinkingLevel: thinkingLevel || fallback };
 }
 
 class AttemptError extends Error {
@@ -106,7 +112,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createGeminiProvider(options: GeminiProviderOptions): Provider {
   const primary = options.model || DEFAULT_GEMINI_MODEL;
   const chain = [...new Set([primary, ...(options.fallbackModels ?? DEFAULT_GEMINI_FALLBACKS)])];
-  const thinkingLevel = options.thinkingLevel || DEFAULT_GEMINI_THINKING_LEVEL;
+  const thinkingLevel = options.thinkingLevel || undefined;
   const attemptTimeoutMs = options.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
   const turnBudgetMs = options.turnBudgetMs ?? DEFAULT_TURN_BUDGET_MS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;

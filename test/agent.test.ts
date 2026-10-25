@@ -345,19 +345,34 @@ test("gemini: a busy model is retried once, then the next model answers and keep
   resetGeminiModelMemory();
 });
 
-test("gemini: 2.5 models get a zero thinking budget instead of a thinking level", async () => {
+test("gemini: the chain ends on 3.5 Flash-Lite with minimal thinking", async () => {
   resetGeminiModelMemory();
-  assert.deepEqual(geminiThinkingConfig("gemini-2.5-flash", "low"), { thinkingBudget: 0 });
+  assert.deepEqual(geminiThinkingConfig("gemini-3.8-flash"), { thinkingLevel: "low" });
+  assert.deepEqual(geminiThinkingConfig("gemini-3.5-flash-lite"), { thinkingLevel: "minimal" });
   assert.deepEqual(geminiThinkingConfig("gemini-3.6-flash", "minimal"), { thinkingLevel: "minimal" });
 
-  const { calls, fetchImpl } = fakeGemini((model) => (model.startsWith("gemini-3") ? busy() : geminiJson([{ text: "Hi." }])));
+  const { calls, fetchImpl } = fakeGemini((model) => (model.endsWith("-lite") ? geminiJson([{ text: "Hi." }]) : busy()));
   const provider = createGeminiProvider({ apiKey: "k", fetch: fetchImpl, retryDelayMs: 1 });
   const result = await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider, now: () => T0 });
-  assert.equal(result.model, "gemini-2.5-flash");
-  const last = calls.at(-1)!;
-  assert.equal(last.model, "gemini-2.5-flash");
-  assert.deepEqual(last.body.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
+  assert.equal(result.model, "gemini-3.5-flash-lite");
+  assert.deepEqual(
+    calls.map((c) => c.model),
+    ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"],
+  );
+  assert.deepEqual(calls.at(-1)!.body.generationConfig, { thinkingConfig: { thinkingLevel: "minimal" } });
   for (const c of calls.slice(0, -1)) assert.deepEqual(c.body.generationConfig, { thinkingConfig: { thinkingLevel: "low" } });
+  resetGeminiModelMemory();
+});
+
+test("gemini: 2.x models get a zero thinking budget instead of a thinking level", async () => {
+  resetGeminiModelMemory();
+  assert.deepEqual(geminiThinkingConfig("gemini-2.5-flash", "low"), { thinkingBudget: 0 });
+
+  const { calls, fetchImpl } = fakeGemini(() => geminiJson([{ text: "Hi." }]));
+  const provider = createGeminiProvider({ apiKey: "k", model: "gemini-2.5-flash", fetch: fetchImpl });
+  const result = await runAgentTurn({ messages: [{ role: "user", content: "hello" }], provider, now: () => T0 });
+  assert.equal(result.model, "gemini-2.5-flash");
+  assert.deepEqual(calls[0]!.body.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
   resetGeminiModelMemory();
 });
 

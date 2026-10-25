@@ -22,6 +22,7 @@ export {
   createGeminiProvider,
   DEFAULT_GEMINI_FALLBACKS,
   DEFAULT_GEMINI_MODEL,
+  DEFAULT_GEMINI_LITE_THINKING_LEVEL,
   DEFAULT_GEMINI_THINKING_LEVEL,
   geminiThinkingConfig,
   resetGeminiModelMemory,
