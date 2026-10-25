@@ -10,7 +10,10 @@ import type { Provider, ProviderTurn } from "../types.ts";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5";
 
 export interface AnthropicProviderOptions {
-  apiKey: string;
+  /** Needed unless `client` is given. */
+  apiKey?: string;
+  /** A preconfigured client, for example with a custom baseURL or a test double. */
+  client?: Anthropic;
   model?: string;
   /** Lower effort keeps latency down, which matters for a voice reply. */
   effort?: "low" | "medium" | "high";
@@ -19,7 +22,7 @@ export interface AnthropicProviderOptions {
 export function createAnthropicProvider(options: AnthropicProviderOptions): Provider {
   const model = options.model || DEFAULT_ANTHROPIC_MODEL;
   const effort = options.effort ?? "low";
-  let client: Anthropic | undefined;
+  let client: Anthropic | undefined = options.client;
 
   return {
     name: "anthropic",
