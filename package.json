@@ -1,6 +1,6 @@
 {
   "name": "paper-broker-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An MCP server for a simulated NSE paper-trading account, plus a small agent loop for a voice trading demo. Simulated prices, no real money.",
   "type": "module",
   "license": "MIT",

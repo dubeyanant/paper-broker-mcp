@@ -2,6 +2,8 @@
 
 An MCP server for a simulated stock trading account, plus a small agent loop that talks to it. You say "buy 10 Reliance", the agent looks up the stock, previews the order, reads it back and asks "Shall I place it?". Only after you say yes does anything get placed.
 
+It can also check your portfolio and prices, summarise this week's real headlines about a stock without the hype, and point out the warning signs in a forwarded stock tip. It works in English and Hindi.
+
 This is the backend for the voice trading agent on my portfolio: **https://www.anantdubey.com/work/voice-trading-agent**. The idea comes from my Ideathon 2026 entry. This repo is a from-scratch rebuild done in public and shares no code with the original.
 
 Prices are simulated and no real money is involved. It isn't connected to any broker or exchange, and nothing here is investment advice.
@@ -21,6 +23,7 @@ Prices are simulated and no real money is involved. It isn't connected to any br
                                                    v
                                       PaperBroker (plain JSON state)
                                       prices = f(symbol, time)
+                                      + Google News RSS (headlines only)
 ```
 
 The same MCP server also runs over stdio, so Claude Desktop or any other MCP client can use it directly.
@@ -37,6 +40,8 @@ The same MCP server also runs over stdio, so Claude Desktop or any other MCP cli
 | `preview_order(symbol, side, quantity, order_type, limit_price?)` | Checks an order and returns `preview_id`, a one-line `summary`, `estimated_value` and `expires_in_seconds: 60`. Changes nothing else. |
 | `place_order(preview_id)` | Places a previewed order. Fails if the preview doesn't exist or has expired. |
 | `cancel_order(order_id)` | Cancels an open limit order. |
+| `get_news(symbol?, query?, language?, limit?)` | This week's real headlines from Google News for a stock, a topic or the market: title, source, time and link, each tagged with red flags such as hype or tip-style language. `language` is `en` or `hi`. |
+| `check_tip(text, language?)` | Looks for the warning signs of a pump-and-dump or tip scam in a message: guaranteed returns, short-term price targets, urgency, insider or "operator" claims, paid groups, OTP or fee requests, penny stocks. Returns a risk level, each flag with the words that triggered it, and what to do instead. |
 
 Each tool returns a short text line (written to be read aloud) and the same data as structured JSON.
 
@@ -46,6 +51,17 @@ There is no tool that places an order from raw parameters. An order can only com
 
 1. **The server.** `place_order` takes nothing but a `preview_id`. The model can't invent an order the user never heard, and a stale preview can't be replayed. Its description says to call it only after the user has explicitly confirmed the preview.
 2. **The agent loop.** `runAgentTurn` only lets `place_order` through for the preview that was pending *before* the user's latest message. A preview created during the current turn is refused with `NOT_CONFIRMED`, whatever the model decides, so the user always hears the preview and answers before anything is placed. If the user says anything other than a confirmation, the pending preview is dropped.
+
+## News and tip checks
+
+Stock tips spread through WhatsApp and Telegram groups, and many of them are pump-and-dump schemes. Two tools are there to slow a user down before they act on one:
+
+- `get_news` fetches real headlines (titles, source and link only, never article text) and flags the ones written like a tip. The agent is told to summarise them neutrally, keep what was reported apart from opinion, and never suggest a trade because of news. Results are cached for 10 minutes; if Google News can't be reached the tool says so instead of failing. Headlines are real; prices in this demo are simulated, so the two won't match.
+- `check_tip` is deterministic, so it works offline and gives the same answer every time. It never calls a message a scam as a fact. It says how many common warning signs it found, and points to checking an advisor on SEBI's intermediary search, reading the company's NSE or BSE announcements, never paying for tips or sharing an OTP, and reporting on SEBI SCORES.
+
+## Hindi
+
+Pass `language: "hi"` to `runAgentTurn`, or just write in Devanagari, and the agent replies in simple spoken Hindi. News and tip checks follow the same language. The offline parser understands Hindi and Hinglish too: Hindi names for all twenty stocks (रिलायंस, टीसीएस, इंफोसिस, स्टेट बैंक…), Hindi number words, and commands like "10 रिलायंस खरीदो", "इंफोसिस का भाव", "टाटा मोटर्स की खबर", "मेरा पोर्टफोलियो" and "हाँ" / "नहीं".
 
 ## Quickstart
 
@@ -75,7 +91,7 @@ npm install
 npm run chat
 ```
 
-Tool calls are printed dimmed above each reply. Things to try: `buy 10 reliance`, `yes`, `sell 5 TCS at 4,000`, `buy twenty shares of infosys`, `price of HDFC bank`, `how is Tata Motors doing`, `show my portfolio`, `how much cash do I have`, `my orders`, `cancel my last order`. Add `-- --provider rules` to force the offline parser.
+Tool calls are printed dimmed above each reply. Things to try: `buy 10 reliance`, `yes`, `sell 5 TCS at 4,000`, `buy twenty shares of infosys`, `price of HDFC bank`, `how is Tata Motors doing`, `news on infosys`, `check this tip: XYZ is a multibagger, target 500 in 2 days, join our VIP group`, `show my portfolio`, `how much cash do I have`, `my orders`, `cancel my last order`, `10 रिलायंस खरीदो`. Add `-- --provider rules` to force the offline parser, or `-- --language hi` for Hindi replies.
 
 The chat script and tests run the TypeScript sources directly, which needs Node 22.18 or newer. The built package in `dist/` runs on Node 20.
 
@@ -96,6 +112,9 @@ const second = await runAgentTurn({
   state: first.state, // plain JSON, safe to store anywhere between turns
 });
 second.reply; // "Done. Bought 10 shares of Reliance at 2,942 rupees 45 paise."
+
+// Hindi: set language, or write in Devanagari.
+const hindi = await runAgentTurn({ messages: [{ role: "user", content: "टाटा मोटर्स की खबर" }], state: null, language: "hi" });
 ```
 
 `state` is plain JSON, so a web route can send it to the browser and get it back on the next request. Validate before trusting it: `runAgentTurn` and `PaperBroker.fromState` both reject malformed state.
