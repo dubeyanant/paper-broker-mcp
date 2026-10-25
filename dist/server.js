@@ -2,12 +2,19 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BrokerError, MAX_QTY, PREVIEW_TTL_MS } from "./broker/broker.js";
 import { shares, speakPercent, speakRupees, spokenName } from "./format.js";
+import { defaultNewsSource, NEWS_DEFAULT_LIMIT, NEWS_MAX_LIMIT } from "./news/google.js";
+import { checkTip } from "./news/redflags.js";
 import { VERSION } from "./version.js";
 export const SERVER_NAME = "paper-broker";
 const INSTRUCTIONS = `A simulated paper trading account for NSE large-cap stocks.
 Prices are generated, not real, and no real money is involved.
 To trade: find the symbol with search_instruments, call preview_order, read the preview to the user,
-and call place_order only after the user explicitly confirms that preview.`;
+and call place_order only after the user explicitly confirms that preview.
+get_news returns real headlines (no article text); check_tip looks for common signs of tip scams.`;
+export const NEWS_NOTE = {
+    en: "Headlines are real; prices in this demo are simulated.",
+    hi: "हेडलाइंस असली हैं; इस डेमो में दाम सिम्युलेटेड हैं।",
+};
 /** A tool result: a short line for humans, plus the same data as JSON. */
 function ok(text, data) {
     return {
@@ -38,7 +45,14 @@ export function orderView(order) {
     };
 }
 /** One spoken sentence describing a previewed order. */
-export function describePreview(p) {
+export function describePreview(p, lang = "en") {
+    if (lang === "hi") {
+        const action = p.side === "BUY" ? "खरीदने" : "बेचने";
+        const what = `${spokenName(p.symbol, "hi")} के ${shares(p.qty, "hi")}`;
+        if (p.type === "MARKET")
+            return `${what} मार्केट भाव पर ${action} का ऑर्डर, लगभग ${speakRupees(p.estimatedValue, "hi")}।`;
+        return `${what} ${speakRupees(p.limitPrice, "hi")} की लिमिट पर ${action} का ऑर्डर, कुल ${speakRupees(p.estimatedValue, "hi")}।`;
+    }
     const verb = p.side === "BUY" ? "Buy" : "Sell";
     const what = `${verb} ${shares(p.qty)} of ${spokenName(p.symbol)}`;
     if (p.type === "MARKET")
@@ -46,7 +60,20 @@ export function describePreview(p) {
     return `${what} with a limit of ${speakRupees(p.limitPrice)}, ${speakRupees(p.estimatedValue)} in total.`;
 }
 /** One spoken sentence describing what happened to an order. */
-export function describeOrder(o) {
+export function describeOrder(o, lang = "en") {
+    if (lang === "hi") {
+        const what = `${spokenName(o.symbol, "hi")} के ${shares(o.qty, "hi")}`;
+        switch (o.status) {
+            case "FILLED":
+                return `${what} ${speakRupees(o.fillPrice, "hi")} पर ${o.side === "BUY" ? "खरीदे गए" : "बेचे गए"}।`;
+            case "OPEN":
+                return `${what} ${speakRupees(o.limitPrice, "hi")} पर ${o.side === "BUY" ? "खरीदने" : "बेचने"} का लिमिट ऑर्डर ${o.id} खुला है।`;
+            case "CANCELLED":
+                return `ऑर्डर ${o.id} कैंसल हो गया।`;
+            case "REJECTED":
+                return `ऑर्डर ${o.id} रिजेक्ट हो गया। ${o.reason ?? ""}`.trim();
+        }
+    }
     const name = spokenName(o.symbol);
     switch (o.status) {
         case "FILLED":
@@ -63,7 +90,8 @@ export function describeOrder(o) {
  * Build an MCP server exposing the paper broker as tools. The server holds a
  * reference to `broker`, so read `broker.toState()` after calls to persist changes.
  */
-export function createServer(broker) {
+export function createServer(broker, options = {}) {
+    const news = options.news ?? defaultNewsSource();
     const server = new McpServer({ name: SERVER_NAME, version: VERSION }, { instructions: INSTRUCTIONS });
     const run = (fn) => {
         try {
@@ -185,5 +213,58 @@ export function createServer(broker) {
         const order = broker.cancelOrder(order_id);
         return ok(describeOrder(order), { order: orderView(order) });
     }));
+    server.registerTool("get_news", {
+        title: "Get news",
+        description: "Recent real market headlines from Google News (last 7 days): title, source, time and link only, no article text. Pass a symbol for one company, a query for a topic, or nothing for general market news. Each headline has flags for hype or tip-style language. Summarize neutrally and never suggest trades because of news.",
+        inputSchema: {
+            symbol: z.string().min(1).optional().describe("NSE symbol, for example RELIANCE. Searches for the company name."),
+            query: z.string().min(1).max(100).optional().describe("Topic to search when there is no symbol, for example 'RBI policy'."),
+            language: z.enum(["en", "hi"]).optional().describe("en for English headlines, hi for Hindi. Default en."),
+            limit: z.number().int().min(1).max(NEWS_MAX_LIMIT).optional().describe(`How many headlines, 1 to ${NEWS_MAX_LIMIT}. Default ${NEWS_DEFAULT_LIMIT}.`),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: true },
+    }, async ({ symbol, query, language, limit }) => {
+        const lang = language ?? "en";
+        let result;
+        try {
+            result = await news.getNews({
+                ...(symbol ? { symbol } : {}),
+                ...(query ? { query } : {}),
+                language: lang,
+                ...(limit !== undefined ? { limit } : {}),
+            });
+        }
+        catch {
+            result = { query: query ?? symbol ?? "", language: lang, items: [], unavailable: true, fetchedAt: new Date().toISOString() };
+        }
+        return ok(newsLine(result), { ...result, note: NEWS_NOTE[lang] });
+    });
+    server.registerTool("check_tip", {
+        title: "Check a stock tip",
+        description: "Check a stock tip, forwarded message or claim for common signs of a pump-and-dump or tip scam: guaranteed returns, short-term targets, urgency, insider or operator claims, hype, requests for fees or OTPs, unregistered advice, penny stocks. Works on English, Hinglish and Hindi. Returns a risk level, the flags with the words that triggered them, and advice.",
+        inputSchema: {
+            text: z.string().min(1).max(5000).describe("The tip or message, as the user gave it."),
+            language: z.enum(["en", "hi"]).optional().describe("Language for labels and advice. Default en."),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
+    }, async ({ text, language }) => {
+        const result = checkTip(text, language ?? "en");
+        return ok(result.summary, { ...result });
+    });
     return server;
+}
+function newsLine(result) {
+    const hi = result.language === "hi";
+    if (result.unavailable)
+        return hi ? "अभी खबरें उपलब्ध नहीं हैं।" : "News is unavailable right now.";
+    const n = result.items.length;
+    const hyped = result.items.filter((i) => i.flags.length > 0).length;
+    if (hi) {
+        const head = n === 0 ? `"${result.query}" पर पिछले 7 दिनों में कोई हेडलाइन नहीं मिली।` : `"${result.query}" पर पिछले 7 दिनों की ${n} हेडलाइंस।`;
+        const hype = hyped > 0 ? ` ${hyped} में बढ़ा-चढ़ाकर भाषा है।` : "";
+        return `${head}${hype} ${NEWS_NOTE.hi}`;
+    }
+    const head = n === 0 ? `No headlines for "${result.query}" in the last 7 days.` : `${n} ${n === 1 ? "headline" : "headlines"} for "${result.query}" from the last 7 days.`;
+    const hype = hyped > 0 ? ` ${hyped} ${hyped === 1 ? "uses" : "use"} hype or tip-style language.` : "";
+    return `${head}${hype} ${NEWS_NOTE.en}`;
 }

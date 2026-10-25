@@ -8,7 +8,7 @@
  * them, so a turn never switches models halfway through its conversation.
  *
  * Busy or rate-limited models are common, so each turn walks a fallback
- * chain: the configured model, then gemini-3.6-flash, then gemini-2.5-flash.
+ * chain: the configured model, then gemini-3.6-flash, then gemini-3.5-flash-lite.
  * A 503, 429, 500, timeout or network error gets one quick retry on the same
  * model. If that fails too, the turn starts again from the original messages
  * on the next model, as long as no order has been placed or cancelled yet.
@@ -17,8 +17,11 @@
  */
 /** Gemini 3.8 Flash, listed as stable and recommended at https://ai.google.dev/gemini-api/docs/models */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
-export const DEFAULT_GEMINI_FALLBACKS = ["gemini-3.6-flash", "gemini-2.5-flash"];
+export const DEFAULT_GEMINI_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+/** Thinking level for Gemini 3 Flash models unless one is configured. */
 export const DEFAULT_GEMINI_THINKING_LEVEL = "low";
+/** Thinking level for Gemini 3 Flash-Lite models unless one is configured. */
+export const DEFAULT_GEMINI_LITE_THINKING_LEVEL = "minimal";
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 12_000;
 const DEFAULT_TURN_BUDGET_MS = 40_000;
@@ -39,7 +42,10 @@ export function resetGeminiModelMemory() {
 }
 /** Gemini 2.x takes a thinking budget; Gemini 3 takes a thinking level. */
 export function geminiThinkingConfig(model, thinkingLevel) {
-    return /^gemini-2\./.test(model) ? { thinkingBudget: 0 } : { thinkingLevel };
+    if (/^gemini-2\./.test(model))
+        return { thinkingBudget: 0 };
+    const fallback = /-lite\b/.test(model) ? DEFAULT_GEMINI_LITE_THINKING_LEVEL : DEFAULT_GEMINI_THINKING_LEVEL;
+    return { thinkingLevel: thinkingLevel || fallback };
 }
 class AttemptError extends Error {
     /** True if the same request might succeed after a short pause. */
@@ -59,7 +65,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createGeminiProvider(options) {
     const primary = options.model || DEFAULT_GEMINI_MODEL;
     const chain = [...new Set([primary, ...(options.fallbackModels ?? DEFAULT_GEMINI_FALLBACKS)])];
-    const thinkingLevel = options.thinkingLevel || DEFAULT_GEMINI_THINKING_LEVEL;
+    const thinkingLevel = options.thinkingLevel || undefined;
     const attemptTimeoutMs = options.timeoutMs ?? DEFAULT_ATTEMPT_TIMEOUT_MS;
     const turnBudgetMs = options.turnBudgetMs ?? DEFAULT_TURN_BUDGET_MS;
     const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;

@@ -161,11 +161,11 @@ async function openSession(state, pending, now, language, news) {
     };
 }
 /** A reply built from a place_order or cancel_order result, for when the model failed right after it. */
-function committedReply(done) {
+function committedReply(done, lang) {
     const order = done.result?.order;
     if (!order)
         return "Done.";
-    return done.name === "cancel_order" ? cancelledReply(order) : placedReply(order);
+    return done.name === "cancel_order" ? cancelledReply(order, lang) : placedReply(order, lang);
 }
 /**
  * Run one conversational turn: connect an MCP client to a fresh server over an
@@ -221,7 +221,7 @@ export async function runAgentTurn(options) {
         const done = session.committed();
         if (done) {
             // An order was placed or cancelled before the failure. Say so rather than apologise.
-            reply = committedReply(done);
+            reply = committedReply(done, language);
         }
         else if (provider.name !== "rules") {
             // Nothing changed, so answer with the rules parser, starting again from the original state.
