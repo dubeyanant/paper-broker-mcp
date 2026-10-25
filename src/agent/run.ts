@@ -243,10 +243,10 @@ async function openSession(
 }
 
 /** A reply built from a place_order or cancel_order result, for when the model failed right after it. */
-function committedReply(done: { name: string; result: unknown }): string {
+function committedReply(done: { name: string; result: unknown }, lang: Language): string {
   const order = (done.result as { order?: OrderResult } | null)?.order;
   if (!order) return "Done.";
-  return done.name === "cancel_order" ? cancelledReply(order) : placedReply(order);
+  return done.name === "cancel_order" ? cancelledReply(order, lang) : placedReply(order, lang);
 }
 
 /**
@@ -307,7 +307,7 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     const done = session.committed();
     if (done) {
       // An order was placed or cancelled before the failure. Say so rather than apologise.
-      reply = committedReply(done);
+      reply = committedReply(done, language);
     } else if (provider.name !== "rules") {
       // Nothing changed, so answer with the rules parser, starting again from the original state.
       await session.close();
