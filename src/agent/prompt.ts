@@ -19,9 +19,14 @@ Trading:
 - If asked about real trading or real money, say this is a simulated demo with generated prices and no real money.`;
 
 /** The system prompt plus a note about the pending preview, rebuilt every turn. */
-export function buildSystemPrompt(pending: Preview | null): string {
-  const note = pending
-    ? `Pending preview ${pending.id}: ${describePreview(pending)} You asked the user to confirm it. If their latest message clearly says yes, call place_order with preview_id "${pending.id}". Otherwise do not place it.`
-    : "There is no pending preview, so there is nothing to place yet. Any trade needs a new preview_order first.";
+export function buildSystemPrompt(pending: Preview | null, now: number = Date.now()): string {
+  let note: string;
+  if (!pending) {
+    note = "There is no pending preview, so there is nothing to place yet. Any trade needs a new preview_order first.";
+  } else if (now > pending.expiresAt) {
+    note = `Pending preview ${pending.id} (${describePreview(pending)}) has expired and can't be placed. If the user confirms, tell them it expired and offer to preview it again.`;
+  } else {
+    note = `Pending preview ${pending.id}: ${describePreview(pending)} You asked the user to confirm it. If their latest message clearly says yes, call place_order with preview_id "${pending.id}". Otherwise do not place it.`;
+  }
   return `${SYSTEM_PROMPT}\n\n${note}`;
 }

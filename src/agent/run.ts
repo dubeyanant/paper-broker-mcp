@@ -142,8 +142,8 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
   const broker = PaperBroker.fromState(brokerState ?? initialState(), { now });
 
   // Only the pending preview survives into this turn; anything else is stale.
-  const active = broker.activePreviews();
-  const pending: Preview | null = active.find((p) => p.id === pendingPreviewId) ?? null;
+  // An expired pending preview is kept so the user hears "expired" rather than "nothing to confirm".
+  const pending: Preview | null = (pendingPreviewId && broker.toState().previews[pendingPreviewId]) || null;
   for (const id of Object.keys(broker.toState().previews)) {
     if (id !== pending?.id) broker.discardPreview(id);
   }
@@ -200,7 +200,7 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
 
   const before = new Set(Object.keys(broker.toState().previews));
   const turn = {
-    system: buildSystemPrompt(pending),
+    system: buildSystemPrompt(pending, now()),
     messages: trimHistory(options.messages, options.maxHistory ?? DEFAULT_MAX_HISTORY),
     tools,
     callTool,
