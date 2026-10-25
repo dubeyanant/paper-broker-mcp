@@ -17,6 +17,7 @@ import type {
   Env,
   Provider,
   ProviderName,
+  ProviderReply,
   ToolOutcome,
   ToolSpec,
 } from "./types.ts";
@@ -216,17 +217,22 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     pendingPreview: pending,
   };
 
+  const unwrap = (out: string | ProviderReply): ProviderReply => (typeof out === "string" ? { reply: out } : out);
   let reply: string;
   let used: Provider = provider;
+  let model = provider.model;
   let error: string | undefined;
   try {
-    reply = await provider.run(turn);
+    const out = unwrap(await provider.run(turn));
+    reply = out.reply;
+    model = out.model ?? provider.model;
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
     if (events.length === 0 && provider.name !== "rules") {
       // The model was unreachable before it did anything; answer with the rules parser instead.
       used = createRulesProvider();
-      reply = await used.run(turn);
+      model = undefined;
+      reply = unwrap(await used.run(turn)).reply;
     } else {
       reply = "Sorry, something went wrong on my side. Please try again.";
     }
@@ -249,7 +255,7 @@ export async function runAgentTurn(options: RunAgentTurnOptions): Promise<AgentT
     state: { ...broker.toState(), pendingPreviewId: nextPending?.id ?? null },
     messages: [...options.messages, { role: "assistant", content: spoken }],
     provider: used.name,
-    ...(used.model ? { model: used.model } : {}),
+    ...(model ? { model } : {}),
     ...(error ? { error } : {}),
   };
 }
